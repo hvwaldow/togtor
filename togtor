@@ -1,0 +1,146 @@
+#!/bin/bash
+
+# HvW 2016-06-24
+#
+# Toggles Tor for http/https via Privoxy on and off
+# We assume Privoxy is listening at 127.00.1:8118
+# We assume the Privoxy config is in /etc/privoxy/config
+# The executing user can sudo (passwordless preferred).
+# This is a systemd - system.
+
+if [[ "$1" == "-h" ]]; then
+    cat <<EOF
+Usage:
+  togtor
+  togtor on | off
+  togtor -h
+EOF
+fi
+
+configpatch=$(cat <<EOF
+--- config	2016-06-24 11:41:06.730059430 +0200
++++ config.tor	2016-06-24 11:40:43.865753782 +0200
+@@ -1,3 +1,10 @@
++forward-socks5t / 127.0.0.1:9050 .
++forward           192.168.*.*/ .
++forward           10.*.*.*/ .
++forward           127.*.*.*/ .
++forward           localhost/ .
++
++
+ #        Sample Configuration File for Privoxy
+ #
+ #  Id: config,v
+
+EOF
+	   )
+
+servicestatus() {
+    systemctl status $1 |grep "Active: active" >/dev/null
+    if [[ "$?" == "0" ]]; then
+	echo "on"
+    else
+	echo "off"
+    fi
+}
+
+torconfig() {
+    if [[ "$(head -1 /etc/privoxy/config)" == "forward-socks5t / 127.0.0.1:9050 ." ]]; then
+	echo "tor"
+    else
+	echo "nontor"
+    fi
+}
+
+mod_config() {
+    if [[ "$1" == "tor" ]]; then
+	sudo patch -d /etc/privoxy <<<"$configpatch"
+	if [[ "$(torconfig)" == "tor" ]]; then
+	    echo "success"
+	    sleep 1
+	else
+	    echo "switching into Tor mode failed, exiting"
+	    exit 1
+	fi
+    elif
+	[[ "$1" == "nontor" ]]; then
+	sudo patch -R -d /etc/privoxy <<<"$configpatch"
+	if [[ "$(torconfig)" == "nontor" ]]; then
+	    echo "success"
+	else
+	    echo "switching into non-Tor mode failed, exiting"
+	    exit 1
+	fi
+    fi
+}
+
+check() {
+    echo "checking ..."
+    checkpage=$(export https_proxy="127.0.0.1:8118"; wget -q -O - https://check.torproject.org)
+    grep "Congratulations. This browser is configured to use Tor." <<<"$checkpage" > /dev/null
+    if [[ "$?" == "0" ]]; then
+	echo "Tor via Privoxy is working."
+	ip=$(sed -n 's|<p>Your IP address appears to be:  <strong>\(.*\)</strong></p>|\1|p' <<<"$checkpage")
+	host=$(nslookup $ip |sed -n 's|^.*name = \(.*\).$|\1|p')
+	echo "You are coming from $ip [$host]"
+    else
+	echo "Tor via Privoxy NOT WORKING!"
+    fi
+}
+
+toggle_tor() {
+    onoff="$1"
+    case $onoff in
+	"on")
+	    msg_already="Tor is aleady running"
+	    msg_start="starting Tor ..."
+	    msg_fail="starting Tor failed, exiting"
+	    comm="start"
+	    ;;
+	"off")
+	    msg_already="Tor is aleady stopped"
+	    msg_start="stopping Tor ..."
+	    msg_fail="stopping Tor failed, exiting"
+	    comm="stop"
+    esac
+    if [[ "$(servicestatus tor)" == "onoff" ]]; then
+	echo $msg_already
+    else
+	echo $msg_start
+	sudo systemctl $comm tor && if [[ "$(servicestatus tor)" == "$onoff" ]]; then
+	    echo "success"
+	else
+	    echo $msg_fail
+	    exit 1
+	fi
+    fi
+}
+
+privoxy=$(servicestatus privoxy)
+
+if [[ "$(servicestatus privoxy)" == "off" ]]; then
+    echo "Privoxy not running, exiting"
+    exit 1
+fi
+
+if [[ "$1" == "on" ]]; then
+    if [[ "$(torconfig)" == "tor" ]]; then
+	echo "privoxy config is already in Tor-mode"
+    else
+	toggle_tor on
+	mod_config tor
+	check
+    fi
+elif [[ "$1" == "off" ]]; then
+    mod_config nontor
+    toggle_tor off
+    echo "Tor switched off."
+fi
+
+if [[ "$#" == "0" ]]; then	
+    echo "Tor: $(servicestatus tor)"
+    echo "Privoxy: $privoxy"
+    echo "torconfig: $(torconfig)"
+    echo "overall check: $(check)"
+fi
+
