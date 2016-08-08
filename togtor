@@ -18,20 +18,18 @@ EOF
 fi
 
 configpatch=$(cat <<EOF
---- config	2016-06-24 11:41:06.730059430 +0200
-+++ config.tor	2016-06-24 11:40:43.865753782 +0200
-@@ -1,3 +1,10 @@
+--- config	2016-08-08 10:55:11.460321373 +0200
++++ config.toron	2016-08-08 10:56:36.397787218 +0200
+@@ -1,3 +1,9 @@
 +forward-socks5t / 127.0.0.1:9050 .
 +forward           192.168.*.*/ .
 +forward           10.*.*.*/ .
 +forward           127.*.*.*/ .
 +forward           localhost/ .
 +
-+
  #        Sample Configuration File for Privoxy
  #
- #  Id: config,v
-
+ # Id: config,v
 EOF
 	   )
 
